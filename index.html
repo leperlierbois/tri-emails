@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tri d'emails marketing</title>
+  <meta name="description" content="Triez vos listes d'emails marketing : gardez les contacts actifs et filtrez-les par mot-clé.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <h1>Tri d'emails marketing</h1>
+      <p class="sub">Chargez votre fichier, gardez les contacts actifs, filtrez-les par mot-clé et exportez le résultat.</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <!-- Étape 1 : fichier -->
+    <section class="card" id="step-file">
+      <h2><span class="num">1</span> Charger le fichier</h2>
+      <label class="drop" id="drop">
+        <input type="file" id="file" accept=".csv,.xlsx,.xls,.xlsm,.ods,.txt,.zip,.rar,.7z" multiple>
+        <strong>Cliquez ou déposez un ou plusieurs fichiers ici</strong>
+        <span>CSV, Excel (.xlsx) ou archive ZIP, RAR, 7Z contenant ces fichiers. Plusieurs fichiers sont fusionnés en une seule liste. Tout reste sur votre ordinateur : rien n'est envoyé sur Internet.</span>
+      </label>
+      <p class="hint">Pas de fichier sous la main ? <a href="exemple.csv" download>Téléchargez le fichier d'exemple</a>.</p>
+      <p id="file-info" class="info" hidden></p>
+    </section>
+
+    <!-- Étape 2 : réglages -->
+    <section class="card" id="step-settings" hidden>
+      <h2><span class="num">2</span> Réglages du tri</h2>
+
+      <div class="grid">
+        <label class="field">
+          <span>Colonne des emails</span>
+          <select id="col-email"></select>
+        </label>
+        <label class="field">
+          <span>Colonne de statut <em>(facultatif)</em></span>
+          <select id="col-status"></select>
+          <small>Ex. « actif », « désabonné », « bounce ». Les statuts négatifs rendent le contact inactif.</small>
+        </label>
+        <label class="field">
+          <span>Colonne pays <em>(facultatif)</em></span>
+          <select id="col-country"></select>
+          <small>Sans colonne pays, le pays est déduit de l'extension du domaine quand c'est possible (.fr → France, .be → Belgique…).</small>
+        </label>
+      </div>
+
+      <div class="field">
+        <span>Colonnes de dernière activité <em>(facultatif)</em></span>
+        <div id="col-dates" class="checks"></div>
+        <small>Dernière ouverture, dernier clic, dernier achat… La date la plus récente est retenue.</small>
+      </div>
+
+      <div class="grid">
+        <label class="field">
+          <span>Considérer inactif sans activité depuis</span>
+          <select id="cutoff">
+            <option value="3">3 mois</option>
+            <option value="6">6 mois</option>
+            <option value="12" selected>12 mois</option>
+            <option value="18">18 mois</option>
+            <option value="24">24 mois</option>
+            <option value="36">36 mois</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Contact sans aucune date d'activité</span>
+          <select id="nodate">
+            <option value="keep" selected>Le garder comme actif</option>
+            <option value="drop">Le considérer inactif</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="field">
+        <span>Vérifications</span>
+        <div class="checks">
+          <label><input type="checkbox" id="opt-mx" checked> Vérifier que le domaine reçoit des emails (DNS)</label>
+          <label><input type="checkbox" id="opt-disposable" checked> Exclure les adresses jetables</label>
+          <label><input type="checkbox" id="opt-role"> Exclure les adresses génériques (noreply@, abuse@…)</label>
+        </div>
+        <small>La vérification DNS envoie uniquement les noms de domaine (ex. « gmail.com ») au service public de Cloudflare, jamais les adresses.</small>
+      </div>
+
+      <div class="field">
+        <span>Mot-clé</span>
+        <input type="text" id="keyword" placeholder="ex. sport, Paris, VIP">
+        <small>Séparez plusieurs mots par des virgules : un contact ressort s'il contient au moins l'un d'eux. Majuscules et accents ignorés.</small>
+      </div>
+
+      <div class="field">
+        <span>Chercher le mot-clé dans</span>
+        <div id="col-search" class="checks"></div>
+      </div>
+
+      <button id="run" class="btn primary">Lancer le tri</button>
+      <p id="progress" class="info" hidden></p>
+    </section>
+
+    <!-- Étape 3 : résultats -->
+    <section class="card" id="step-results" hidden>
+      <h2><span class="num">3</span> Récapitulatif</h2>
+
+      <div class="stats">
+        <div class="stat"><span class="k">Total dans le fichier</span><span class="v" id="s-total">0</span></div>
+        <button class="stat ok" data-tab="active"><span class="k">Actifs</span><span class="v" id="s-active">0</span><span class="p" id="s-active-p"></span></button>
+        <button class="stat kw" data-tab="kw"><span class="k" id="s-kw-label">Actifs liés au mot-clé</span><span class="v" id="s-kw">0</span><span class="p" id="s-kw-p"></span></button>
+        <button class="stat bad" data-tab="inactive"><span class="k">Inactifs ou exclus</span><span class="v" id="s-inactive">0</span><span class="p" id="s-inactive-p"></span></button>
+      </div>
+      <p class="hint">Cliquez sur une carte pour afficher la liste correspondante dans le tableau.</p>
+
+      <p id="summary" class="summary"></p>
+
+      <div id="reasons" class="reasons"></div>
+
+      <h3 class="mini" id="countries-title">Répartition par pays</h3>
+      <div id="countries" class="reasons countries"></div>
+
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="kw" role="tab">Actifs + mot-clé</button>
+        <button class="tab" data-tab="active" role="tab">Tous les actifs</button>
+        <button class="tab" data-tab="inactive" role="tab">Inactifs / exclus</button>
+      </div>
+
+      <div class="grid filters">
+        <label class="field">
+          <span>Pays</span>
+          <select id="country-filter"><option value="">Tous les pays</option></select>
+        </label>
+        <label class="field">
+          <span>Ordre du tableau</span>
+          <select id="sort">
+            <option value="country" selected>Classé par pays</option>
+            <option value="file">Ordre du fichier</option>
+            <option value="email">Email (A → Z)</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button class="btn" id="export-csv">Exporter cette liste (CSV)</button>
+        <button class="btn" id="export-xlsx">Exporter cette liste (Excel)</button>
+        <button class="btn ghost" id="copy-emails">Copier les emails</button>
+      </div>
+
+      <div class="table-wrap">
+        <table id="table"><thead></thead><tbody></tbody></table>
+      </div>
+      <p id="table-note" class="hint"></p>
+    </section>
+
+    <section class="card note">
+      <h2>Comment la plateforme décide qu'un email est « actif »</h2>
+      <p>Un site hébergé sur GitHub Pages ne peut pas vérifier qu'une boîte mail existe vraiment : il faudrait interroger le serveur mail du destinataire, ce qu'un navigateur ne peut pas faire. La plateforme combine donc ces critères :</p>
+      <ul>
+        <li><strong>Adresse bien formée</strong> (ex. pas de « jean@gmail » ou d'espace).</li>
+        <li><strong>Domaine capable de recevoir des emails</strong> (enregistrement MX vérifié par DNS).</li>
+        <li><strong>Pas d'adresse jetable</strong> (yopmail, mailinator…) et <strong>pas de doublon</strong>.</li>
+        <li><strong>Statut du fichier</strong> : désabonné, bounce, plainte, inactif… sont écartés.</li>
+        <li><strong>Dernière activité</strong> (ouverture, clic, achat) plus récente que la période choisie.</li>
+      </ul>
+      <p>Plus votre fichier contient de colonnes d'activité, plus le tri est fiable. Pour une vérification complète des boîtes mail, un service spécialisé (ZeroBounce, NeverBounce…) reste nécessaire.</p>
+    </section>
+  </main>
+
+  <footer class="wrap foot">Tout le traitement se fait dans votre navigateur.</footer>
+
+  <script src="vendor/xlsx.full.min.js"></script>
+  <script src="disposable.js"></script>
+  <script src="countries.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
