@@ -649,7 +649,7 @@
   $("export-csv").addEventListener("click", () => {
     const { head, body } = tableData(currentLists());
     const cell = (v) => { const s = String(v == null ? "" : v); return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-    const csv = "﻿" + [head, ...body].map((r) => r.map(cell).join(";")).join("\r\n");
+    const csv = "\uFEFF" + [head, ...body].map((r) => r.map(cell).join(";")).join("\r\n");
     download(new Blob([csv], { type: "text/csv;charset=utf-8" }), exportName("csv"));
   });
 
