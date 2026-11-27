@@ -70,8 +70,8 @@
     let wb;
     if (isCsv) {
       let text = new TextDecoder("utf-8").decode(buf);
-      if (text.includes("�")) text = new TextDecoder("windows-1252").decode(buf); // fichiers Excel « CSV » français
-      text = text.replace(/^﻿/, "");
+      if (text.includes("\uFFFD")) text = new TextDecoder("windows-1252").decode(buf); // fichiers Excel « CSV » français
+      text = text.replace(/^\uFEFF/, "");
       wb = XLSX.read(text, { type: "string", raw: true });
     } else {
       wb = XLSX.read(buf, { type: "array", cellDates: true });
