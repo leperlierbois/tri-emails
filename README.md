@@ -3,6 +3,7 @@
 Petite application web (100 % navigateur) pour trier une liste d'emails avant une campagne :
 
 - Import de fichiers **CSV** ou **Excel (.xlsx)**, ou d'archives **ZIP, RAR, 7Z** qui les contiennent (plusieurs fichiers sont fusionnés) ;
+- **Instructions écrites ou dictées à la voix** pour expliquer comment lire le fichier, par exemple un email collé à une information (`jean@gmail.com:France`) : l'email est isolé et ce qui suit va dans une colonne que vous nommez ;
 - Tri des contacts **actifs** / **inactifs**, avec la raison de chaque exclusion ;
 - Filtre par **mot-clé** sur les informations de chaque contact ;
 - **Pays** de chaque contact (colonne du fichier ou extension du domaine), filtre et classement par pays ;

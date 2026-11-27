@@ -29,8 +29,47 @@
     </section>
 
     <!-- Étape 2 : réglages -->
+    <section class="card" id="step-parse" hidden>
+      <h2><span class="num">2</span> Expliquer comment lire le fichier</h2>
+      <p id="parse-detect" class="info" hidden></p>
+
+      <div class="field">
+        <span>Vos instructions <em>(à l'écrit ou à la voix)</em></span>
+        <div class="voice-row">
+          <textarea id="instructions" rows="3" placeholder="Ex. : « Après l'email il y a deux points, et ce qui suit c'est le pays. Mot-clé sport. »"></textarea>
+          <button type="button" class="btn mic" id="mic" title="Dicter les instructions">🎤 Parler</button>
+        </div>
+        <small id="mic-note">Cliquez sur « Parler », expliquez, puis cliquez à nouveau pour arrêter. La dictée fonctionne dans Chrome, Edge et Safari.</small>
+        <div><button type="button" class="btn" id="understand">Appliquer mes instructions</button></div>
+        <p id="understood" class="info" hidden></p>
+      </div>
+
+      <h3 class="mini">Email et informations collés dans la même case</h3>
+      <div class="grid">
+        <label class="field">
+          <span>Colonne qui contient l'email</span>
+          <select id="split-col"></select>
+        </label>
+        <label class="field">
+          <span>Séparateur entre l'email et l'information</span>
+          <input type="text" id="split-sep" value=":" maxlength="5">
+          <small>Le caractère collé juste après l'email, par exemple « : ».</small>
+        </label>
+        <label class="field">
+          <span>Nom de ce qui suit le séparateur</span>
+          <input type="text" id="split-names" placeholder="ex. Pays">
+          <small>S'il y a plusieurs informations (email:a:b), séparez les noms par des virgules : « Pays, Nom ».</small>
+        </label>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn primary" id="split-apply">Séparer l'email et les informations</button>
+        <button type="button" class="btn ghost" id="split-undo" hidden>Annuler la séparation</button>
+      </div>
+      <div id="split-preview" class="table-wrap" hidden><table><thead></thead><tbody></tbody></table></div>
+    </section>
+
     <section class="card" id="step-settings" hidden>
-      <h2><span class="num">2</span> Réglages du tri</h2>
+      <h2><span class="num">3</span> Réglages du tri</h2>
 
       <div class="grid">
         <label class="field">
@@ -103,7 +142,7 @@
 
     <!-- Étape 3 : résultats -->
     <section class="card" id="step-results" hidden>
-      <h2><span class="num">3</span> Récapitulatif</h2>
+      <h2><span class="num">4</span> Récapitulatif</h2>
 
       <div class="stats">
         <div class="stat"><span class="k">Total dans le fichier</span><span class="v" id="s-total">0</span></div>

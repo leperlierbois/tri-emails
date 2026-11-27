@@ -82,15 +82,18 @@
       if (data.some((r) => r.some((v) => String(v).trim() !== ""))) { aoa = data; sheet = sn; break; }
     }
     aoa = aoa.filter((r) => r.some((v) => String(v).trim() !== ""));
-    if (aoa.length < 2) return null;
+    // Fichier sans ligne d'en-tête : la première ligne contient déjà un email
+    const noHeader = aoa.length > 0 && aoa[0].some((v) => /\S+@\S+\.\S+/.test(String(v)));
+    if (aoa.length < (noHeader ? 1 : 2)) return null;
     const width = Math.max(...aoa.map((r) => r.length));
     const seen = {};
     const headers = Array.from({ length: width }, (_, i) => {
+      if (noHeader) return /\S+@\S+\.\S+/.test(String(aoa[0][i])) && !seen.Email ? (seen.Email = 1, "Email") : "Colonne " + (i + 1);
       let h = String(aoa[0][i] == null ? "" : aoa[0][i]).trim() || "Colonne " + (i + 1);
       if (seen[h]) h = h + " (" + (++seen[h]) + ")"; else seen[h] = 1;
       return h;
     });
-    const rows = aoa.slice(1).map((r) => Array.from({ length: width }, (_, i) => (r[i] == null ? "" : r[i])));
+    const rows = aoa.slice(noHeader ? 0 : 1).map((r) => Array.from({ length: width }, (_, i) => (r[i] == null ? "" : r[i])));
     return { headers, rows, sheet: !isCsv && wb.SheetNames.length > 1 ? sheet : "" };
   }
 
@@ -157,12 +160,251 @@
       const skipped = sources.length - parsed.length;
       if (skipped) msg += " " + skipped + " fichier(s) vide(s) ignoré(s).";
       info(fileInfo, msg);
+      state.original = null;
+      setupParse();
       setupSettings();
     } catch (err) {
       console.error(err);
       info(fileInfo, "Impossible de lire le fichier : " + err.message, true);
     }
   }
+
+  // ---------- Lecture : email et informations collés dans la même case ----------
+  // Sépare "jean@x.fr:France" en email + informations. L'email peut être au début ou à la fin.
+  function splitValue(v, sep) {
+    const s = String(v == null ? "" : v).trim();
+    if (!sep || !s.includes(sep)) return null;
+    // Email au début : on prend le plus court début qui forme une adresse valide
+    for (let k = s.indexOf(sep); k >= 0; k = s.indexOf(sep, k + 1)) {
+      const email = cleanEmail(s.slice(0, k));
+      if (EMAIL_RE.test(email)) return { email, parts: s.slice(k + sep.length).split(sep).map((x) => x.trim()) };
+    }
+    // Email à la fin : "France:jean@x.fr"
+    for (let k = s.lastIndexOf(sep); k >= 0; k = s.lastIndexOf(sep, k - 1)) {
+      const email = cleanEmail(s.slice(k + sep.length));
+      if (EMAIL_RE.test(email)) return { email, parts: s.slice(0, k).split(sep).map((x) => x.trim()) };
+      if (k === 0) break;
+    }
+    return null;
+  }
+
+  const SEP_CANDIDATES = [":", ";", "|", "=", "#", "/", ",", "\t", " - ", "-", " "];
+  function detectGlued(col) {
+    const vals = columnValues(col, 200).map(String).filter((v) => v.includes("@"));
+    if (!vals.length) return null;
+    if (vals.filter((v) => EMAIL_RE.test(cleanEmail(v))).length >= vals.length * 0.8) return null; // emails déjà propres
+    for (const sep of SEP_CANDIDATES) {
+      const ok = vals.filter((v) => { const r = splitValue(v, sep); return r && r.parts.some(Boolean); });
+      if (ok.length >= vals.length * 0.5) return { sep, example: ok[0] };
+    }
+    return null;
+  }
+
+  function namesFromInput() {
+    return $("split-names").value.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+  }
+
+  function applySplit() {
+    const sep = $("split-sep").value === "\\t" ? "\t" : $("split-sep").value;
+    if (!sep) { info($("parse-detect"), "Indiquez le séparateur (par exemple « : »).", true); return false; }
+    if (!state.original) state.original = { headers: state.headers.slice(), rows: state.rows };
+    const { headers, rows } = state.original;
+    const col = +$("split-col").value;
+
+    const splits = rows.map((r) => splitValue(r[col], sep));
+    const done = splits.filter(Boolean).length;
+    if (!done) {
+      info($("parse-detect"), "Aucune case de la colonne « " + headers[col] + " » ne contient un email suivi de « " + sep + " ». Vérifiez le séparateur.", true);
+      return false;
+    }
+    const maxParts = Math.max(...splits.map((s) => (s ? s.parts.length : 0)));
+    let names = namesFromInput();
+    if (!names.length) names = maxParts > 1 ? Array.from({ length: maxParts }, (_, i) => "Information " + (i + 1)) : ["Information"];
+
+    const emailHeader = /mail|courriel/.test(norm(headers[col])) ? headers[col] : "Email";
+    const newHeaders = headers.slice(0, col).concat([emailHeader], names, headers.slice(col + 1));
+    const newRows = rows.map((r, idx) => {
+      const s = splits[idx];
+      let vals = s ? s.parts.slice() : [];
+      // Plus de morceaux que de noms : le dernier champ reçoit le reste
+      if (vals.length > names.length) vals = vals.slice(0, names.length - 1).concat([vals.slice(names.length - 1).join(sep)]);
+      while (vals.length < names.length) vals.push("");
+      return r.slice(0, col).concat([s ? s.email : r[col]], vals, r.slice(col + 1));
+    });
+    state.headers = newHeaders;
+    state.rows = newRows;
+    state.results = null;
+    $("step-results").hidden = true;
+
+    info($("parse-detect"), "Séparation faite sur " + fmt(done) + " ligne(s) sur " + fmt(rows.length) + " : l'email est isolé et ce qui suit « " + sep + " » va dans " +
+      (names.length > 1 ? "les colonnes « " + names.join(" », « ") + " »." : "la colonne « " + names[0] + " »."));
+    $("split-undo").hidden = false;
+    showSplitPreview(col, names.length + 1);
+    setupSettings(true);
+    return true;
+  }
+
+  function showSplitPreview(col, n) {
+    const box = $("split-preview");
+    const cols = Array.from({ length: n }, (_, i) => col + i);
+    box.querySelector("thead").innerHTML = "<tr>" + cols.map((i) => "<th>" + esc(state.headers[i]) + "</th>").join("") + "</tr>";
+    box.querySelector("tbody").innerHTML = state.rows.slice(0, 5).map((r) =>
+      "<tr>" + cols.map((i) => "<td>" + esc(r[i] instanceof Date ? fmtDate(r[i]) : r[i]) + "</td>").join("") + "</tr>").join("");
+    box.hidden = false;
+  }
+
+  $("split-apply").addEventListener("click", applySplit);
+  $("split-undo").addEventListener("click", () => {
+    if (!state.original) return;
+    state.headers = state.original.headers;
+    state.rows = state.original.rows;
+    state.original = null;
+    state.results = null;
+    $("step-results").hidden = true;
+    $("split-undo").hidden = true;
+    $("split-preview").hidden = true;
+    info($("parse-detect"), "Séparation annulée : le fichier est revenu à son état d'origine.");
+    setupSettings(true);
+  });
+
+  function setupParse() {
+    const col = Math.max(detectEmailColumn(), 0);
+    $("split-col").innerHTML = state.headers.map((h, i) => '<option value="' + i + '">' + esc(h) + "</option>").join("");
+    $("split-col").value = String(col);
+    $("split-undo").hidden = true;
+    $("split-preview").hidden = true;
+    $("split-names").value = "";
+    $("understood").hidden = true;
+    $("parse-detect").hidden = true;
+    $("step-parse").hidden = false;
+
+    const g = detectGlued(col);
+    if (g) {
+      $("split-sep").value = g.sep === "\t" ? "\\t" : g.sep;
+      applySplit();
+      const label = g.sep === " " ? "un espace" : g.sep === "\t" ? "une tabulation" : "« " + g.sep.trim() + " »";
+      info($("parse-detect"), "Les emails sont collés à une information, séparés par " + label + " (ex. " + g.example + "). " +
+        "Je les ai séparés automatiquement. Donnez un nom à ce qui suit (ex. « Pays ») dans le champ ci-dessous, puis cliquez sur « Séparer l'email et les informations ».");
+    }
+  }
+
+  // ---------- Instructions écrites ou dictées ----------
+  const SEP_WORDS = [
+    [/deux[\s-]?points/, ":"], [/point[\s-]?virgule/, ";"], [/barre verticale|\bpipe\b/, "|"], [/barre oblique|\bslash\b/, "/"],
+    [/tiret|trait d['’ ]union/, "-"], [/\begal\b|signe egal/, "="], [/diese|hashtag/, "#"], [/tabulation/, "\\t"],
+    [/\bvirgule\b/, ","], [/\bespace\b/, " "]
+  ];
+
+  function understandInstructions(text) {
+    const out = { notes: [] };
+    let t = " " + text.replace(/\s+/g, " ") + " ";
+    const n = norm(t);
+
+    // Mot-clé
+    const kw = t.match(/mots?[\s-]?cl[ée]s?\s*(?:est|sera|c['’]est|:|=)?\s*[«"“]?\s*([^.;!?\n»"”]+)/i);
+    if (kw) {
+      out.keyword = kw[1].replace(/\s+(?:et|puis)\s+(?:ce|la|le|les|l['’]).*$/i, "").trim();
+      t = t.replace(kw[0], " ");
+    }
+    // Période d'inactivité
+    const mo = n.match(/(\d+)\s*mois/);
+    if (mo) out.months = +mo[1];
+    if (/generique|noreply|no-reply/.test(n)) out.role = !/(garde|conserve|inclu)/.test(n.slice(Math.max(0, n.search(/generique|noreply/) - 30), n.search(/generique|noreply/)));
+
+    // Séparateur
+    const sym = t.match(/(?:^|\s)([:;|=#])(?:\s|$)|«\s*([^\s»])\s*»|"([^\s"])"/);
+    for (const [re, sep] of SEP_WORDS) if (re.test(n)) { out.sep = sep; break; }
+    if (!out.sep && sym) out.sep = sym[1] || sym[2] || sym[3];
+
+    // Noms des informations : « c'est le pays », « s'appelle Nom », « nommer ça Ville »…
+    const nameRe = /(?:c['’]est|ce sont|correspond(?:ent)?\s+(?:à|a)|s['’]appelle(?:nt)?|appel(?:le|les|lez|er|é|ée|és)|nomm(?:e|es|ez|er|é|ée|és)|intitul(?:é|ée|er|e)|représente(?:nt)?|indique(?:nt)?)\s+((?:(?:le|la|les|l['’]|du|de la|des|ça|cela|cette information|ce champ|ce qui suit|le champ|la colonne|par|comme|en)\s+)*)[«"“]?\s*([^.;!?\n»"”]+)/gi;
+    let m, names = [];
+    while ((m = nameRe.exec(t))) {
+      const chunk = m[2].split(/\s*,\s*|\s+et\s+|\s+puis\s+|\s+ensuite\s+|\s+suivi\s+(?:de|du|de la)\s+/i)
+        .map((x) => x.replace(/^(?:le|la|les|l['’]|du|de la|des|son|sa|ses)\s*/i, "").replace(/\s+(?:de la personne|du contact|de chaque.*|qui suit.*|après.*)$/i, "").trim())
+        .filter((x) => x && x.split(" ").length <= 4 && !/^(deux points|point|virgule|tiret|séparateur|email|mail|l'email|le mail)$/i.test(x));
+      if (chunk.length) { names = chunk; }
+    }
+    // Sinon : « deux points puis le pays et ensuite le nom »
+    if (!names.length) {
+      const nt = t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      let at = -1;
+      for (const [re] of SEP_WORDS) { const mm = nt.match(re); if (mm) { at = mm.index + mm[0].length; break; } }
+      if (at < 0) { const mm = t.match(/[:;|=#]/); if (mm) at = mm.index + 1; }
+      if (at >= 0) {
+        names = t.slice(at).split(/[.!?\n]/)[0].split(/\s*,\s*|\s+et\s+|\s+puis\s+|\s+ensuite\s+|\s+suivi[es]*\s+/i)
+          .map((x) => { const mm = x.match(/(?:^|\s)(?:le|la|les|l['’]|son|sa|ses)\s*([^\s].*)$/i); return mm ? mm[1].trim() : ""; })
+          .filter((x) => x && x.split(" ").length <= 4 && !/^(e-?mail|mail|adresse.*)$/i.test(x));
+      }
+    }
+    if (names.length) out.names = names.map((x) => x.charAt(0).toUpperCase() + x.slice(1));
+    return out;
+  }
+
+  $("understand").addEventListener("click", () => {
+    const text = $("instructions").value.trim();
+    const box = $("understood");
+    if (!text) { info(box, "Écrivez ou dictez d'abord vos instructions.", true); return; }
+    const u = understandInstructions(text);
+    const done = [];
+    if (u.sep != null) { $("split-sep").value = u.sep; done.push("Séparateur après l'email : « " + (u.sep === " " ? "espace" : u.sep) + " »"); }
+    if (u.names) { $("split-names").value = u.names.join(", "); done.push("Ce qui suit l'email s'appelle : " + u.names.join(", ")); }
+    if (u.sep != null || u.names) {
+      if (state.headers.length && applySplit()) done.push("Email et informations séparés (voir l'aperçu ci-dessous)");
+    }
+    if (u.keyword) { $("keyword").value = u.keyword; done.push("Mot-clé : « " + u.keyword + " »"); }
+    if (u.months) {
+      const opts = Array.from($("cutoff").options).map((o) => +o.value);
+      const best = opts.reduce((a, b) => (Math.abs(b - u.months) < Math.abs(a - u.months) ? b : a));
+      $("cutoff").value = String(best);
+      done.push("Inactif sans activité depuis " + best + " mois");
+    }
+    if (u.role != null) { $("opt-role").checked = u.role; done.push(u.role ? "Exclure les adresses génériques" : "Garder les adresses génériques"); }
+
+    if (!done.length) {
+      info(box, "Je n'ai rien reconnu dans ces instructions. Essayez par exemple : « après l'email il y a deux points, ce qui suit c'est le pays ». Vous pouvez aussi remplir directement les champs ci-dessous.", true);
+      return;
+    }
+    box.hidden = false;
+    box.classList.remove("error");
+    box.innerHTML = "<strong>Compris :</strong><ul class=\"understood-list\">" + done.map((d) => "<li>" + esc(d) + "</li>").join("") + "</ul>Vérifiez les champs ci-dessous, puis lancez le tri à l'étape 3.";
+  });
+
+  // Dictée vocale (Web Speech API)
+  (function setupVoice() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const mic = $("mic"), ta = $("instructions"), note = $("mic-note");
+    const label = (on) => { mic.innerHTML = on ? "■ Arrêter" : MIC_SVG + " Parler"; };
+    const MIC_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" style="vertical-align:-2px"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
+    label(false);
+    if (!SR) {
+      mic.disabled = true;
+      note.textContent = "La dictée vocale n'est pas disponible dans ce navigateur (utilisez Chrome, Edge ou Safari). Vous pouvez écrire vos instructions.";
+      return;
+    }
+    let rec = null, on = false;
+    mic.addEventListener("click", () => {
+      if (on) { rec.stop(); return; }
+      rec = new SR();
+      rec.lang = "fr-FR";
+      rec.continuous = true;
+      rec.interimResults = true;
+      const base = ta.value.trim() ? ta.value.trim() + " " : "";
+      rec.onresult = (e) => {
+        let txt = "";
+        for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
+        ta.value = base + txt.trim();
+      };
+      rec.onerror = (e) => {
+        note.textContent = e.error === "not-allowed" || e.error === "service-not-allowed"
+          ? "Le micro est bloqué. Autorisez-le dans la barre d'adresse du navigateur, puis réessayez."
+          : e.error === "no-speech" ? "Je n'ai rien entendu. Cliquez sur « Parler » et réessayez." : "La dictée s'est arrêtée (" + e.error + ").";
+      };
+      rec.onend = () => { on = false; mic.classList.remove("on"); label(false); };
+      try { rec.start(); on = true; mic.classList.add("on"); label(true); }
+      catch (e) { note.textContent = "Impossible de démarrer le micro : " + e.message; }
+    });
+  })();
 
   // ---------- Détection des colonnes ----------
   function columnValues(i, limit) {
@@ -228,7 +470,7 @@
     return out;
   }
 
-  function setupSettings() {
+  function setupSettings(keepScroll) {
     const emailCol = detectEmailColumn();
     const statusCol = detectStatusColumn(emailCol);
     const dateCols = detectDateColumns(emailCol);
@@ -251,7 +493,7 @@
 
     $("step-settings").hidden = false;
     $("step-results").hidden = true;
-    $("step-settings").scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!keepScroll) $("step-parse").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   const checked = (id) => Array.from($(id).querySelectorAll("input:checked")).map((c) => +c.value);
@@ -408,7 +650,11 @@
         const fail = (cat, reason) => { it.cat = cat; it.reason = reason || cat; };
 
         if (!email) { fail("Email manquant"); return it; }
-        if (!EMAIL_RE.test(email)) { fail("Adresse mal formée"); return it; }
+        if (!EMAIL_RE.test(email)) {
+          if (/^[^\s@]+@[^\s@]+\.[a-z]{2,}[:;|=#\/,]/i.test(email)) fail("Information collée à l'email", "Information collée à l'email : séparez-la à l'étape 2");
+          else fail("Adresse mal formée");
+          return it;
+        }
         if (seen.has(email)) { fail("Doublon"); return it; }
         seen.add(email);
 

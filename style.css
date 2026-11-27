@@ -97,3 +97,11 @@ button.stat.selected { outline: 2px solid var(--accent); outline-offset: -1px; }
 .countries button.selected { background: var(--accent); color: #fff; border-color: var(--accent); }
 .filters { margin-bottom: 4px; }
 tr.group td { background: var(--accent-soft); font-weight: 600; }
+.voice-row { display: flex; gap: 8px; align-items: stretch; }
+.voice-row textarea { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; resize: vertical; }
+.btn.mic { white-space: nowrap; }
+.btn.mic.on { background: var(--bad); border-color: var(--bad); color: #fff; animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity: .7; } }
+@media (prefers-reduced-motion: reduce) { .btn.mic.on { animation: none; } }
+#split-preview { max-height: 200px; margin-top: 4px; }
+.understood-list { margin: 6px 0 0; padding-left: 18px; }
